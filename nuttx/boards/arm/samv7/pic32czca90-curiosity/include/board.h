@@ -194,13 +194,18 @@
  *   PIC32  Functions
  *   GPIO
  *   ------ ----------
- *   PD23   Green LED0
- *   PD29   Red LED1
+ *   PB21   Green LED0
+ *   PB22   Red LED1
  *   ------ ----------
  *
  * If CONFIG_ARCH_LEDS is not defined, then the user can control the LEDs
  * in any way.  The following definitions are used to access individual LEDs.
  */
+
+#define GPIO_LED0         (GPIO_OUTPUT | GPIO_CFG_DEFAULT | GPIO_OUTPUT_SET | \
+                           GPIO_PORT_PIOB | GPIO_PIN21)
+#define GPIO_LED1         (GPIO_OUTPUT | GPIO_CFG_DEFAULT | GPIO_OUTPUT_SET | \
+                           GPIO_PORT_PIOB | GPIO_PIN22)
 
 /* LED index values for use with board_userled() */
 
@@ -298,6 +303,10 @@ extern "C"
 /****************************************************************************
  * Public Functions Definitions
  ****************************************************************************/
+
+uint32_t board_userled_initialize(void);
+void board_userled(int led, bool ledon);
+void board_userled_all(uint32_t ledset);
 
 #undef EXTERN
 #if defined(__cplusplus)

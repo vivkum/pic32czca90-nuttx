@@ -38,31 +38,28 @@
 #include <nuttx/fs/fs.h>
 #include <nuttx/fs/nxffs.h>
 
+#include <unistd.h>
+#include <sched.h>
+#include <nuttx/kthread.h>
+
+#include <arch/board/board.h>
 #include "sam_board.h"
-
-#ifdef HAVE_LED_DRIVER
-#  include <nuttx/leds/userled.h>
-#endif
-
-#ifdef CONFIG_CDCACM
-#include <nuttx/usb/cdcacm.h>
-#endif
-
-#ifdef CONFIG_INPUT_BUTTONS
-#  include <nuttx/input/buttons.h>
-#endif
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-/****************************************************************************
- * Private Data
- ****************************************************************************/
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
+
+static int blink_main(int argc, char **argv)
+{
+  while (1)
+    {
+      board_userled(BOARD_LED0, true);  /* ON */
+      usleep(5000);                     /* 5 ms */
+      board_userled(BOARD_LED0, false); /* OFF */
+      sleep(1);                         /* 1 second */
+    }
+  return 0;
+}
 
 /****************************************************************************
  * Public Functions
@@ -79,6 +76,14 @@
 int sam_bringup(void)
 {
   int ret;
+
+  /* Initialize user LEDs */
+
+  board_userled_initialize();
+
+  /* Initialize LED0 blinking thread (5ms ON, 1s OFF) */
+
+  kthread_create("blink", SCHED_PRIORITY_MIN, 2048, blink_main, NULL);
 
 /* Procfs mount *************************************************************
  */

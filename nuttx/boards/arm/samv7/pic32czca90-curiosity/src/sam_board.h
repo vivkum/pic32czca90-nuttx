@@ -142,25 +142,6 @@
 
 /* PIC32CZ CA90 GPIO Pin Definitions ****************************************/
 
-/* LEDs
- *
- * There is one green and one red LED on PIC32CZ CA90 Evaluation board. The
- * LEDs can be activated by driving the connected I/O line to GND.
- *
- *   ------ ----------
- *   PIC32  Functions
- *   GPIO
- *   ------ ----------
- *   PD23   Green LED0
- *   PD29   Red LED1
- *   ------ ----------
- */
-
-#define GPIO_LED0     (GPIO_OUTPUT | GPIO_CFG_DEFAULT | GPIO_OUTPUT_SET | \
-                       GPIO_PORT_PIOD | GPIO_PIN29)
-#define GPIO_LED1     (GPIO_OUTPUT | GPIO_CFG_DEFAULT | GPIO_OUTPUT_SET | \
-                       GPIO_PORT_PIOD | GPIO_PIN23)
-
 /* Buttons
  *
  * PIC32CZ CA90 Curiosity contains three mechanical buttons. One button is
