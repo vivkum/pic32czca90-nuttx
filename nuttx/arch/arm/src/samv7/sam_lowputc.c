@@ -168,6 +168,147 @@ static spinlock_t g_sam_lowputc_lock = SP_UNLOCKED;
 #endif
 
 /****************************************************************************
+ * CA90-specific early SERCOM1 USART console
+ *
+ * Virtual COM port: PC4 = SERCOM1_PAD0 (TX, mux D)
+ *                  PC7 = SERCOM1_PAD3 (RX, mux D)
+ * Clock: GCLK0 (DFLL 48 MHz after boot ROM)
+ * Baud:  115200  →  BAUD register = 63019
+ *
+ * Register map (all offsets from SERCOM1_BASE = 0x46002000):
+ *   CTRLA   +0x00  (32-bit)
+ *   CTRLB   +0x04  (32-bit)
+ *   BAUD    +0x0C  (16-bit)
+ *   INTFLAG +0x18  (8-bit)  bit0=DRE, bit1=TXC, bit2=RXC
+ *   DATA    +0x28  (16-bit)
+ *
+ * MCLK: base 0x44052000, CLKMSK0 at +0x3C  → bit 24 = SERCOM1
+ * GCLK: base 0x44050000, PCHCTRL[24] at +0xE0 → GEN=0, CHEN=1
+ * PORT: base 0x44840000, group C at +0x100
+ *   PMUX[2]   +0x132  PC4 even nibble = D(3)
+ *   PMUX[3]   +0x133  PC7 odd  nibble = D(3)<<4
+ *   PINCFG[4] +0x144  PMUXEN(bit0)=1
+ *   PINCFG[7] +0x147  PMUXEN(bit0)=1
+ ****************************************************************************/
+
+#ifdef CONFIG_ARCH_CHIP_PIC32CZCA90
+
+#define CA90_MCLK_BASE          0x44052000u
+#define CA90_MCLK_CLKMSK0       (CA90_MCLK_BASE + 0x3Cu)
+#define CA90_MCLK_SERCOM1_BIT   (1u << 24)
+
+#define CA90_GCLK_BASE          0x44050000u
+#define CA90_GCLK_SYNCBUSY      (CA90_GCLK_BASE + 0x04u)
+#define CA90_GCLK_PCHCTRL_SERCOM1 (CA90_GCLK_BASE + 0x80u + (24u * 4u))
+#define CA90_GCLK_PCHCTRL_CHEN  (1u << 6)
+
+#define CA90_PORTC_BASE         (0x44840000u + 0x100u)
+#define CA90_PORTC_PMUX2        (CA90_PORTC_BASE + 0x32u)  /* PC4/PC5 */
+#define CA90_PORTC_PMUX3        (CA90_PORTC_BASE + 0x33u)  /* PC6/PC7 */
+#define CA90_PORTC_PINCFG4      (CA90_PORTC_BASE + 0x44u)  /* PC4 */
+#define CA90_PORTC_PINCFG7      (CA90_PORTC_BASE + 0x47u)  /* PC7 */
+#define CA90_PORT_PMUX_D        3u   /* peripheral function D */
+#define CA90_PORT_PMUXEN        (1u << 0)
+
+#define CA90_SERCOM1_BASE       0x46002000u
+#define CA90_SERCOM1_CTRLA      (CA90_SERCOM1_BASE + 0x00u)
+#define CA90_SERCOM1_CTRLB      (CA90_SERCOM1_BASE + 0x04u)
+#define CA90_SERCOM1_BAUD       (CA90_SERCOM1_BASE + 0x0Cu)
+#define CA90_SERCOM1_INTFLAG    (CA90_SERCOM1_BASE + 0x18u)
+#define CA90_SERCOM1_DATA       (CA90_SERCOM1_BASE + 0x28u)
+#define CA90_SERCOM1_SYNCBUSY   (CA90_SERCOM1_BASE + 0x1Cu)
+
+/* CTRLA bits */
+#define SERCOM_USART_CTRLA_SWRST   (1u << 0)
+#define SERCOM_USART_CTRLA_ENABLE  (1u << 1)
+#define SERCOM_USART_CTRLA_MODE(x) ((x) << 2)   /* 1 = USART internal clk */
+#define SERCOM_USART_CTRLA_RXPO(x) ((x) << 20)  /* 3 = PAD3 */
+#define SERCOM_USART_CTRLA_TXPO(x) ((x) << 16)  /* 0 = PAD0 TX */
+#define SERCOM_USART_CTRLA_DORD    (1u << 30)    /* LSB first */
+
+/* CTRLB bits */
+#define SERCOM_USART_CTRLB_CHSIZE(x) ((x) << 0) /* 0=8-bit */
+#define SERCOM_USART_CTRLB_TXEN      (1u << 16)
+#define SERCOM_USART_CTRLB_RXEN      (1u << 17)
+
+/* INTFLAG bits */
+#define SERCOM_USART_INTFLAG_DRE  (1u << 0)
+
+/* SYNCBUSY bits */
+#define SERCOM_USART_SYNCBUSY_SWRST  (1u << 0)
+#define SERCOM_USART_SYNCBUSY_ENABLE (1u << 1)
+#define SERCOM_USART_SYNCBUSY_CTRLB  (1u << 2)
+
+/* BAUD value: 65536 * (1 - 16 * 115200 / 48000000) = 63019
+ * Assumes GCLK0 = DFLL = 48 MHz after boot ROM.
+ */
+#define CA90_SERCOM1_BAUD_115200  63019u
+
+static void ca90_sercom1_init(void)
+{
+  /* 1. Enable MCLK APB clock for SERCOM1 (bit 24 of CLKMSK0) */
+
+  putreg32(getreg32(CA90_MCLK_CLKMSK0) | CA90_MCLK_SERCOM1_BIT,
+           CA90_MCLK_CLKMSK0);
+
+  /* 2. Route GCLK0 (48 MHz DFLL) to SERCOM1 core clock */
+
+  putreg32(CA90_GCLK_PCHCTRL_CHEN,   /* GEN=0 (GCLK0), CHEN=1 */
+           CA90_GCLK_PCHCTRL_SERCOM1);
+  while (getreg32(CA90_GCLK_SYNCBUSY) & (1u << 2));  /* wait SYNCBUSY */
+
+  /* 3. Pin mux: PC4 → SERCOM1_PAD0 (TX), PC7 → SERCOM1_PAD3 (RX)
+   *    PMUX[2] lower nibble = PC4, PMUX[3] upper nibble = PC7 (both mux D)
+   */
+
+  putreg8((uint8_t)(CA90_PORT_PMUX_D | (CA90_PORT_PMUX_D << 4)),
+          CA90_PORTC_PMUX2);  /* PC4=D, PC5=D (PC5 unused, safe) */
+  putreg8((uint8_t)(CA90_PORT_PMUX_D | (CA90_PORT_PMUX_D << 4)),
+          CA90_PORTC_PMUX3);  /* PC6=D (unused), PC7=D */
+  putreg8((uint8_t)CA90_PORT_PMUXEN, CA90_PORTC_PINCFG4);
+  putreg8((uint8_t)CA90_PORT_PMUXEN, CA90_PORTC_PINCFG7);
+
+  /* 4. Software-reset SERCOM1 */
+
+  putreg32(SERCOM_USART_CTRLA_SWRST, CA90_SERCOM1_CTRLA);
+  while (getreg32(CA90_SERCOM1_SYNCBUSY) & SERCOM_USART_SYNCBUSY_SWRST);
+
+  /* 5. Configure USART: internal clock, TX=PAD0, RX=PAD3, LSB first */
+
+  putreg32(SERCOM_USART_CTRLA_MODE(1) |
+           SERCOM_USART_CTRLA_RXPO(3) |
+           SERCOM_USART_CTRLA_TXPO(0) |
+           SERCOM_USART_CTRLA_DORD,
+           CA90_SERCOM1_CTRLA);
+
+  /* 6. BAUD = 63019 for 115200 @ 48 MHz */
+
+  putreg16((uint16_t)CA90_SERCOM1_BAUD_115200, CA90_SERCOM1_BAUD);
+
+  /* 7. Enable TX and RX */
+
+  putreg32(SERCOM_USART_CTRLB_CHSIZE(0) |
+           SERCOM_USART_CTRLB_TXEN |
+           SERCOM_USART_CTRLB_RXEN,
+           CA90_SERCOM1_CTRLB);
+  while (getreg32(CA90_SERCOM1_SYNCBUSY) & SERCOM_USART_SYNCBUSY_CTRLB);
+
+  /* 8. Enable SERCOM1 */
+
+  putreg32(getreg32(CA90_SERCOM1_CTRLA) | SERCOM_USART_CTRLA_ENABLE,
+           CA90_SERCOM1_CTRLA);
+  while (getreg32(CA90_SERCOM1_SYNCBUSY) & SERCOM_USART_SYNCBUSY_ENABLE);
+}
+
+static void ca90_sercom1_putc(char ch)
+{
+  while ((getreg8(CA90_SERCOM1_INTFLAG) & SERCOM_USART_INTFLAG_DRE) == 0);
+  putreg16((uint16_t)(unsigned char)ch, CA90_SERCOM1_DATA);
+}
+
+#endif /* CONFIG_ARCH_CHIP_PIC32CZCA90 */
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -181,7 +322,9 @@ static spinlock_t g_sam_lowputc_lock = SP_UNLOCKED;
 
 void arm_lowputc(char ch)
 {
-#ifdef HAVE_SERIAL_CONSOLE
+#ifdef CONFIG_ARCH_CHIP_PIC32CZCA90
+  ca90_sercom1_putc(ch);
+#elif defined(HAVE_SERIAL_CONSOLE)
   irqstate_t flags;
 
   /* Wait for the transmitter to be available */
@@ -225,6 +368,13 @@ void up_putc(int ch)
 
 void sam_lowsetup(void)
 {
+#ifdef CONFIG_ARCH_CHIP_PIC32CZCA90
+  /* CA90: initialize SERCOM1 USART on PC4 (TX) / PC7 (RX) */
+
+  ca90_sercom1_init();
+  return;
+#endif
+
 #if defined(HAVE_SERIAL_CONSOLE) && !defined(CONFIG_SUPPRESS_UART_CONFIG)
   uint64_t divb3;
   uint32_t intpart;

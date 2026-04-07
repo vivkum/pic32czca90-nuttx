@@ -368,6 +368,15 @@ static inline void sam_disabledefaultmaster(void)
 
 void sam_clockconfig(void)
 {
+#ifdef CONFIG_ARCH_CHIP_PIC32CZCA90
+  /* CA90 uses GCLK/OSCCTRL/MCLK (not PMC/CKGR).
+   * Clocks are configured by the boot ROM before jumping to user code.
+   * Nothing to do here.
+   */
+
+  return;
+#endif
+
   /* Configure embedded flash access */
 
   sam_efcsetup();

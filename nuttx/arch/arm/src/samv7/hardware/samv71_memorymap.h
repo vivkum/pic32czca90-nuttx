@@ -117,6 +117,18 @@
 #define SAM_UART0_BASE         0x400e0800 /* 0x400e0800-0x400e093f: UART 0 */
 #define SAM_CHIPID_BASE        0x400e0940 /* 0x400e0940-0x400e09ff: CHIP ID */
 #define SAM_UART1_BASE         0x400e0a00 /* 0x400e0a00-0x400e0bff: UART 1 */
+
+/* SERCOM address region (CA90) */
+
+#define SAM_SERCOM0_BASE       0x46000000
+#define SAM_SERCOM1_BASE       0x46002000
+#define SAM_SERCOM2_BASE       0x46004000
+#define SAM_SERCOM3_BASE       0x46006000
+#define SAM_SERCOM4_BASE       0x46100000
+#define SAM_SERCOM5_BASE       0x46102000
+#define SAM_SERCOM6_BASE       0x46104000
+#define SAM_SERCOM7_BASE       0x46106000
+
 #define SAM_EEFC_BASE          0x400e0c00 /* 0x400e0c00-0x400e0dff: Embedded Flash Controller (EEFC) */
 #define SAM_PIO_BASE           0x400e0e00 /* 0x400e0e00-0x400e13ff: Parallel I/O Controllers */
 #  define SAM_PION_BASE(n)     (0x400e0e00 + ((n) << 9))

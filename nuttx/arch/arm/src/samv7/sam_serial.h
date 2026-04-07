@@ -228,4 +228,8 @@
 void sam_serial_dma_poll(void);
 #endif
 
+#ifdef CONFIG_ARCH_CHIP_PIC32CZCA90
+void arm_serialinit(void);
+#endif
+
 #endif /* __ARCH_ARM_SRC_SAMV7_SAM_SERIAL_H */

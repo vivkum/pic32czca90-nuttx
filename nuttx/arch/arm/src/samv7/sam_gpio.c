@@ -474,6 +474,13 @@ static inline int sam_configperiph(uintptr_t base, uint32_t pin,
 
 void sam_gpioinit(void)
 {
+#ifdef CONFIG_ARCH_CHIP_PIC32CZCA90
+  /* CA90 uses PORT peripheral (not PIO/MATRIX).
+   * No global GPIO init needed here; pins are configured per-peripheral.
+   */
+
+  return;
+#endif
 #if !defined(CONFIG_SAMV7_ERASE_ENABLE) || \
     !defined(CONFIG_SAMV7_JTAG_FULL_ENABLE)
   uint32_t regval;

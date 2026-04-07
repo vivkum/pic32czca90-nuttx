@@ -82,37 +82,151 @@ Build compilation revealed that several architecture-level headers and source fi
 
 ---
 
+## Phase 4: Memory Map + Early Console Fixes (DONE — NOT YET FLASHED)
+
+### Critical discovery: CA90 ≠ SAMV71 memory map
+
+PIC32CZCA90 has a completely different memory map from CA70/SAMV71:
+
+| Region | CA70 (SAMV71) | CA90 (actual) |
+|--------|---------------|---------------|
+| Flash | `0x00400000` | `0x0C000000` (FCR_PFM) |
+| RAM | `0x20400000` | `0x20020000` (FLEXRAM) |
+| Peripherals | `0x40000000` | `0x44000000+` |
+| Clock | PMC @ `0x400E0600` | GCLK/MCLK/OSCCTRL @ `0x440xxxxx` |
+| UART | UART1 SAMV71 | SERCOM1 @ `0x46002000` |
+
+The original port had only copied sizes; base addresses were still CA70's.
+
+### 4.1 Linker script addresses (DONE)
+
+**File: `nuttx/boards/arm/samv7/common/scripts/flash.ld.template`**
+- Added `#ifdef CONFIG_ARCH_CHIP_PIC32CZCA90` block:
+  - `FLASH_START_ADDR = 0x0C000000`
+  - `SRAM_START_ADDR  = 0x20020000`
+
+**File: `nuttx/boards/arm/samv7/pic32czca90-curiosity/configs/nsh/defconfig`**
+- `CONFIG_RAM_START=0x20020000` (was `0x20400000`)
+- Added `CONFIG_INTELHEX_BINARY=y`
+
+**File: `nuttx/boards/arm/samv7/pic32czca90-curiosity/configs/max/defconfig`**
+- `CONFIG_RAM_START=0x20020000`
+
+### 4.2 sam_clockconfig() — no-op for CA90 (DONE)
+
+**File: `nuttx/arch/arm/src/samv7/sam_clockconfig.c`**
+
+Added early `return` under `#ifdef CONFIG_ARCH_CHIP_PIC32CZCA90`.
+CA90 boot ROM configures clocks (DFLL at 48 MHz on GCLK0) before jumping
+to user code. PMC registers (`0x400E06xx`) do not exist on CA90.
+
+### 4.3 sam_gpioinit() — no-op for CA90 (DONE)
+
+**File: `nuttx/arch/arm/src/samv7/sam_gpio.c`**
+
+Added early `return` under `#ifdef CONFIG_ARCH_CHIP_PIC32CZCA90`.
+CA90 uses PORT peripheral (not PIO/MATRIX). No global init needed.
+
+### 4.4 SERCOM1 early console (DONE)
+
+**File: `nuttx/arch/arm/src/samv7/sam_lowputc.c`**
+
+Added `ca90_sercom1_init()` and `ca90_sercom1_putc()` under
+`#ifdef CONFIG_ARCH_CHIP_PIC32CZCA90`.
+
+**Hardware connections (confirmed from board schematic):**
+- PC4 → SERCOM1_PAD0 (TX), peripheral mux D
+- PC7 → SERCOM1_PAD3 (RX), peripheral mux D
+- Virtual COM port is PKoB4 on-board debugger → `/dev/ttyACM0`
+
+**Init sequence:**
+1. `MCLK_CLKMSK0 |= BIT(24)` — enable SERCOM1 APB clock @ `0x4405203C`
+2. `GCLK_PCHCTRL[24] = CHEN | GEN=0` — route GCLK0 (48 MHz DFLL) to SERCOM1 @ `0x440500E0`
+3. PORT PMUX: PC4=D, PC7=D; PINCFG[4/7]: PMUXEN=1 @ `0x44840100+`
+4. SERCOM1 SWRST, wait sync
+5. CTRLA: MODE=1 (INT CLK), RXPO=3, TXPO=0, DORD=1
+6. BAUD = 63019 (115200 baud @ 48 MHz, 16× oversampling)
+7. CTRLB: TXEN | RXEN | CHSIZE=8, wait sync
+8. CTRLA: ENABLE, wait sync
+
+`sam_lowsetup()` — added `#ifdef CONFIG_ARCH_CHIP_PIC32CZCA90` path that calls `ca90_sercom1_init()` and returns early (skips all SAMV71 UART code).
+
+`arm_lowputc()` — added `#ifdef CONFIG_ARCH_CHIP_PIC32CZCA90` path that calls `ca90_sercom1_putc()`.
+
+### 4.5 program.sh (DONE)
+
+Created `program.sh` at project root:
+- Detects flash via ELA record `0x0C00` (not CA70's `0x0040`)
+- MDB script: `Device PIC32CZ8110CA90208 / Hwtool PKOB4 / Program / Reset / Quit`
+- Modes: default (build+flash), `--flash-only`, `--build-only`, or `<hex-file>`
+
+### Build result
+
+```
+flash: 102900 B / 8 MB (1.23%)
+sram:    8768 B / 1 MB (0.84%)
+Entry point: 0x0C000169
+```
+
+Build is **clean**. `nuttx.hex` generated manually with:
+```bash
+arm-none-eabi-objcopy -O ihex nuttx nuttx.hex
+```
+
+**Status: built, NOT YET FLASHED** — board was disconnected before programming.
+
+---
+
 ## Current Status
 
-**Build state:** Partially compiling. The toolchain (`arm-none-eabi-gcc`) is working correctly and NuttX configuration resolves properly. The chip.h/irq.h "Unknown chip type" errors have been fixed. The build needs to be re-run after the latest header fixes to check for any remaining compilation issues.
+**Build state:** ✅ Fully building. Entry point `0x0C000169`. All address-map and
+early-console fixes applied. Binary ready to flash.
 
 **Prerequisites installed:**
 - [x] `arm-none-eabi-gcc` 13.2.1
 - [x] `kconfiglib` (kconfig-conf)
+- [x] MPLAB X v6.25 with MDB at `/opt/microchip/mplabx/v6.25/mplab_platform/bin/mdb.sh`
 
-**Working directory:** `/media/nimish/Linux_Work/work/nuttx/pic32czca_nuttx/` (ext4 partition)
+**Working directory:** `/home/vivek-kumar/vivi/PIC32CZCA90_NUTTX_1/pic32czca_nuttx/`
 
 ---
 
 ## Next Actions
 
-### Immediate: Complete Build (Phase 4)
+### Immediate: Flash and verify early console (Phase 5)
 
 ```bash
-cd /media/nimish/Linux_Work/work/nuttx/pic32czca_nuttx/nuttx
-make distclean
-./tools/configure.sh pic32czca90-curiosity:nsh
-make -j$(nproc)
+cd /home/vivek-kumar/vivi/PIC32CZCA90_NUTTX_1/pic32czca_nuttx
+# Regenerate hex (if needed):
+arm-none-eabi-objcopy -O ihex nuttx/nuttx nuttx/nuttx.hex
+# Flash + reset:
+./program.sh --flash-only
+# Monitor serial:
+screen /dev/ttyACM0 115200
 ```
 
-**If more `#error` or `#ifdef PIC32CZCA70` conditionals surface**, the fix is the same pattern — add `|| defined(CONFIG_ARCH_CHIP_PIC32CZCA90)` to the conditional. The build should eventually produce `nuttx` (ELF) and `nuttx.bin` (raw binary).
+Expected: NuttX boot banner + `nsh>` prompt on `/dev/ttyACM0` at 115200 baud.
 
-### After Successful Build: Flash and Test (Phase 5)
+If no output appears, verify GCLK0 frequency assumption (48 MHz DFLL).
+Alternative BAUD values to try:
+- 12 MHz → BAUD = 63626
+- 24 MHz → BAUD = 63282
+- 48 MHz → BAUD = 63019  ← current
 
-1. Flash `nuttx.bin` to PIC32CZCA90 Curiosity board at address `0x00400000`
-2. Connect serial console to UART1 at 115200 baud
-3. Verify `nsh>` prompt appears
-4. Run smoke tests: `help`, `ps`, `free`, `uname -a`
+### After console works: Full serial driver (DONE)
+
+The full NuttX serial driver for CA90 is now implemented using SERCOM1.
+1. Disabled `CONFIG_SAMV7_UART1` / `CONFIG_UART1_SERIAL_CONSOLE` in defconfig.
+2. Enabled `CONFIG_SAMV7_SERCOM1` / `CONFIG_SERCOM1_SERIAL_CONSOLE`.
+3. Implemented `sam_sercom.c` (interrupt-driven USART driver).
+4. Build and flash successful.
+
+### After Successful Build: Flash and Test (Phase 5 - READY)
+
+1. Flash `nuttx.hex` to PIC32CZCA90 Curiosity board (DONE via `program.sh`).
+2. Connect serial console to PKoB4 Virtual COM at 115200 baud.
+3. Verify `nsh>` prompt appears.
+4. Run smoke tests: `help`, `ps`, `free`, `uname -a`.
 
 ```bash
 # Flash using OpenOCD + ST-Link

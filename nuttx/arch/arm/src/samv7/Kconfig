@@ -1962,6 +1962,81 @@ config SAMV7_RSWDT
 	default n
 	select WATCHDOG
 
+menu "SERCOM Configuration"
+	depends on ARCH_CHIP_PIC32CZCA90
+
+config SAMV7_SERCOM0
+	bool "SERCOM0"
+	default n
+
+config SAMV7_SERCOM1
+	bool "SERCOM1"
+	default n
+	select SERCOM1_SERIALDRIVER
+	select ARCH_HAVE_SERIAL_TERMIOS
+
+config SERCOM1_SERIALDRIVER
+	bool
+	default n
+	select MCU_SERIAL
+
+config SERCOM1_SERIAL_CONSOLE
+	bool "SERCOM1"
+	depends on SERCOM1_SERIALDRIVER
+	select SERIAL_CONSOLE
+
+config SAMV7_SERCOM2
+	bool "SERCOM2"
+	default n
+
+config SAMV7_SERCOM3
+	bool "SERCOM3"
+	default n
+
+config SAMV7_SERCOM4
+	bool "SERCOM4"
+	default n
+
+config SAMV7_SERCOM5
+	bool "SERCOM5"
+	default n
+
+config SAMV7_SERCOM6
+	bool "SERCOM6"
+	default n
+
+config SAMV7_SERCOM7
+	bool "SERCOM7"
+	default n
+
+if SAMV7_SERCOM1
+config SERCOM1_RXBUFSIZE
+	int "SERCOM1 RX buffer size"
+	default 256
+
+config SERCOM1_TXBUFSIZE
+	int "SERCOM1 TX buffer size"
+	default 256
+
+config SERCOM1_BAUD
+	int "SERCOM1 BAUD rate"
+	default 115200
+
+config SERCOM1_BITS
+	int "SERCOM1 character size"
+	default 8
+
+config SERCOM1_2STOP
+	int "SERCOM1 2 stop bits"
+	default 0
+
+config SERCOM1_PARITY
+	int "SERCOM1 parity"
+	default 0
+endif
+
+endmenu
+
 endmenu # SAMV7 Peripheral Selection
 
 choice

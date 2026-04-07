@@ -30,8 +30,14 @@ include armv7-m/Make.defs
 # Required SAMV7 files
 
 CHIP_CSRCS  = sam_start.c sam_clockconfig.c sam_irq.c sam_allocateheap.c
-CHIP_CSRCS += sam_lowputc.c sam_serial.c sam_gpio.c sam_pck.c sam_uid.c
+CHIP_CSRCS += sam_lowputc.c sam_pck.c sam_uid.c
 CHIP_CSRCS += sam_systemreset.c sam_chipid.c
+
+ifeq ($(CONFIG_ARCH_CHIP_PIC32CZCA90),y)
+CHIP_CSRCS += sam_port.c sam_sercom.c
+else
+CHIP_CSRCS += sam_gpio.c sam_serial.c
+endif
 
 # Configuration-dependent SAMV7 files
 

@@ -2551,6 +2551,155 @@ void sam_serial_dma_poll(void)
 #endif
 
 /****************************************************************************
+ * CA90-specific SERCOM1 polling console driver
+ *
+ * SERCOM1 (0x46002000): PC4=TX(PAD0,muxD), PC7=RX(PAD3,muxD)
+ * Clock: GCLK0 48 MHz DFLL.  BAUD=63019 → 115200 bps.
+ * Already initialized by ca90_sercom1_init() in sam_lowsetup().
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_ARCH_CHIP_PIC32CZCA90
+
+#define CA90_SERCOM1_BASE     0x46002000u
+#define CA90_SERCOM1_INTFLAG  (CA90_SERCOM1_BASE + 0x18u)  /* 8-bit  */
+#define CA90_SERCOM1_DATA     (CA90_SERCOM1_BASE + 0x28u)  /* 16-bit */
+#define CA90_INTFLAG_DRE      (1u << 0)  /* TX data register empty */
+#define CA90_INTFLAG_RXC      (1u << 2)  /* RX complete            */
+
+#define CA90_CON_TXBUF_SIZE 256
+#define CA90_CON_RXBUF_SIZE 256
+
+static char g_ca90_txbuf[CA90_CON_TXBUF_SIZE];
+static char g_ca90_rxbuf[CA90_CON_RXBUF_SIZE];
+
+static int ca90_con_setup(FAR struct uart_dev_s *dev)
+{
+  /* SERCOM1 already initialized in sam_lowsetup() → ca90_sercom1_init() */
+
+  return OK;
+}
+
+static void ca90_con_shutdown(FAR struct uart_dev_s *dev)
+{
+}
+
+static int ca90_con_attach(FAR struct uart_dev_s *dev)
+{
+  /* Polling mode: no IRQ attachment needed */
+
+  return OK;
+}
+
+static void ca90_con_detach(FAR struct uart_dev_s *dev)
+{
+}
+
+static int ca90_con_ioctl(FAR struct file *filep,
+                          int cmd, unsigned long arg)
+{
+  return -ENOTTY;
+}
+
+static int ca90_con_receive(FAR struct uart_dev_s *dev,
+                            FAR unsigned int *status)
+{
+  *status = 0;
+  return (int)(getreg16(CA90_SERCOM1_DATA) & 0xffu);
+}
+
+static bool ca90_con_rxavailable(FAR struct uart_dev_s *dev)
+{
+  return (getreg8(CA90_SERCOM1_INTFLAG) & CA90_INTFLAG_RXC) != 0;
+}
+
+static void ca90_con_rxint(FAR struct uart_dev_s *dev, bool enable)
+{
+  /* Polling mode: when RX "interrupt" is enabled, drain any pending input now */
+
+  if (enable)
+    {
+      while (ca90_con_rxavailable(dev))
+        {
+          uart_recvchars(dev);
+        }
+    }
+}
+
+static void ca90_con_send(FAR struct uart_dev_s *dev, int ch)
+{
+  while ((getreg8(CA90_SERCOM1_INTFLAG) & CA90_INTFLAG_DRE) == 0);
+  putreg16((uint16_t)(unsigned char)ch, CA90_SERCOM1_DATA);
+}
+
+static void ca90_con_txint(FAR struct uart_dev_s *dev, bool enable)
+{
+  /* Polling mode: when TX "interrupt" is enabled, drain the xmit buffer now */
+
+  if (enable)
+    {
+      uart_xmitchars(dev);
+    }
+}
+
+static bool ca90_con_txready(FAR struct uart_dev_s *dev)
+{
+  return (getreg8(CA90_SERCOM1_INTFLAG) & CA90_INTFLAG_DRE) != 0;
+}
+
+static bool ca90_con_txempty(FAR struct uart_dev_s *dev)
+{
+  return (getreg8(CA90_SERCOM1_INTFLAG) & CA90_INTFLAG_DRE) != 0;
+}
+
+static const struct uart_ops_s g_ca90_uart_ops =
+{
+  .setup       = ca90_con_setup,
+  .shutdown    = ca90_con_shutdown,
+  .attach      = ca90_con_attach,
+  .detach      = ca90_con_detach,
+  .ioctl       = ca90_con_ioctl,
+  .receive     = ca90_con_receive,
+  .rxint       = ca90_con_rxint,
+  .rxavailable = ca90_con_rxavailable,
+  .send        = ca90_con_send,
+  .txint       = ca90_con_txint,
+  .txready     = ca90_con_txready,
+  .txempty     = ca90_con_txempty,
+};
+
+static uart_dev_t g_ca90_console =
+{
+  .isconsole = true,
+  .ops       = &g_ca90_uart_ops,
+  .xmit      =
+  {
+    .size   = CA90_CON_TXBUF_SIZE,
+    .buffer = g_ca90_txbuf,
+  },
+  .recv      =
+  {
+    .size   = CA90_CON_RXBUF_SIZE,
+    .buffer = g_ca90_rxbuf,
+  },
+};
+
+#ifdef USE_EARLYSERIALINIT
+void arm_earlyserialinit(void)
+{
+  /* SERCOM1 already configured in sam_lowsetup() → ca90_sercom1_init() */
+}
+#endif
+
+void arm_serialinit(void)
+{
+  uart_register("/dev/console", &g_ca90_console);
+  uart_register("/dev/ttyS0",   &g_ca90_console);
+}
+
+#else /* !CONFIG_ARCH_CHIP_PIC32CZCA90 — original SAMV7 implementations */
+
+/****************************************************************************
  * Name: arm_earlyserialinit
  *
  * Description:
@@ -2653,5 +2802,7 @@ void arm_serialinit(void)
   uart_register("/dev/ttyS7", &TTYS7_DEV);
 #endif
 }
+
+#endif /* !CONFIG_ARCH_CHIP_PIC32CZCA90 */
 
 #endif /* USE_SERIALDRIVER */
